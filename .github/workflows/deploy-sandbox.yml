@@ -1,0 +1,228 @@
+name: Build to Sandbox
+
+on:
+  push:
+    branches:
+      - feat/*
+    tags:
+      - sandbox-*
+
+concurrency:
+  group: deploy-sandbox
+  cancel-in-progress: true
+
+# * Do not use ${{ secrets }} in the `env` section
+env:
+  AWS_REGION: us-east-1
+  AWS_ROLE_ARN: ${{ vars.ACCOUNT_SANDBOX_AWS_ROLE_ARN }}
+  BUCKET_DEPLOY_ROLE_ARN: "" # Quiet lint, populates on build
+  CDK_ENV_API_HOSTED_ZONE: initzero.xyz
+  CDK_ENV_API_SUBDOMAIN: api.unknown.sandbox # TODO: set CDK_ENV_API_SUBDOMAIN (e.g., campaign-api)
+  CDK_ENV_REPO: ${{ github.repository }}
+  CDK_ENV_WEB_HOSTED_ZONE: initzero.xyz
+  CDK_ENV_WEB_SUBDOMAIN: unknown.sandbox # TODO: set CDK_ENV_WEB_SUBDOMAIN (e.g., campaign)
+  LOG_LEVEL: trace
+  MODULE_LOG_LEVEL: warn
+  NPM_INSTALL_FLAGS: ""
+  POSTMAN_COLLECTION_UUID: "" # TODO: also needs POSTMAN_API_KEY secret
+  POSTMAN_ENVIRONMENT_UUID: "" # TODO: also needs POSTMAN_API_KEY secret
+  PROJECT_COMMIT: ${{ github.sha }}
+  PROJECT_ENV: sandbox
+  PROJECT_KEY: unknown # TODO: set PROJECT_KEY (e.g., campaign)
+  PROJECT_NONCE: 016378e6 # TODO: randomize
+  PROJECT_SERVICE: none # e.g., operations; to tie multiple projects # TODO: set PROJECT_SERVICE if applicable
+  PROJECT_SPONSOR: unknown # TODO: set PROJECT_SPONSOR (e.g., company)
+  SERVICE_EMAIL: dev@initzero.xyz # TODO: change SERVICE_EMAIL and SERVICE_TEAM, if applicable
+  SERVICE_TEAM: development
+  VITE_PROJECT_BUILD_NUMBER: ${{ github.run_number }}
+  VITE_API_SERVER_URL: "" # Quiet lint, populates on build
+  VITE_BASE_URL: "" # Quiet lint, populates on build
+
+# * Safer to use ${{ secrets }} below
+# * Changes beyond this point should be minimal
+
+jobs:
+  deploy:
+    name: Deploy to AWS
+    permissions:
+      id-token: write # for aws-actions/configure-aws-credentials
+      contents: read # for actions/checkout
+    runs-on: ubuntu-latest
+    steps:
+      ##
+      # Setup
+      ##
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          role-session-name: DeployRoleForGitHubSession
+          aws-region: ${{ env.AWS_REGION }}
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          cache: npm
+          node-version: 20
+      - name: Configuration and Setup
+        run: |
+          if [[ -n "${{ secrets.NPM_TOKEN }}" ]]; then
+            echo "Configure secrets.NPM_TOKEN"
+            npm config set //registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}
+          fi
+          CDK_ENV_INFRASTRUCTURE_STACK_SHA=$(shasum -a 1 ./packages/cdk/lib/cdk-infrastructure.js | awk '{print $1}')
+          echo "CDK_ENV_INFRASTRUCTURE_STACK_SHA=$CDK_ENV_INFRASTRUCTURE_STACK_SHA" >> $GITHUB_ENV
+          CDK_ENV_STACK_NAME=cdk-${{env.PROJECT_SPONSOR}}-${{env.PROJECT_KEY}}-${{env.PROJECT_ENV}}-${{env.PROJECT_NONCE}}
+          echo "CDK_ENV_STACK_NAME=$CDK_ENV_STACK_NAME" >> $GITHUB_ENV
+          echo "VITE_PROJECT_ENV=${{env.PROJECT_ENV}}" >> $GITHUB_ENV
+      - run: npm install ${{ env.NPM_INSTALL_FLAGS }}
+      ##
+      # Infrastructure Deployment
+      ##
+      - name: CDK Infrastructure Deployment
+        run: |
+          # Check if stack exists first
+          if aws cloudformation describe-stacks --stack-name $CDK_ENV_STACK_NAME-infrastructure 2>/dev/null; then
+            # Stack exists, check if we need to update it
+            if aws cloudformation describe-stacks --stack-name $CDK_ENV_STACK_NAME-infrastructure --query 'Stacks[0].Tags[?Key==`stackSha`].Value' --output text | grep -q $CDK_ENV_INFRASTRUCTURE_STACK_SHA; then
+              echo "Infrastructure $CDK_ENV_INFRASTRUCTURE_STACK_SHA already deployed. Skipping deploy step."
+            else
+              echo "Deploying updated infrastructure $CDK_ENV_INFRASTRUCTURE_STACK_SHA..."
+              npm --workspace packages/cdk run cdk deploy -- CdkInfrastructureStack --require-approval never
+            fi
+          else
+            # Stack doesn't exist, perform initial deployment
+            echo "Performing initial infrastructure deployment..."
+            npm --workspace packages/cdk run cdk deploy -- CdkInfrastructureStack --require-approval never
+          fi
+      ##
+      # API Backend Deployment
+      ##
+      - name: CDK Backend Deployment
+        run: |
+          npm --workspace packages/express install ${{ env.NPM_INSTALL_FLAGS }}
+          npm --workspace packages/lambda install ${{ env.NPM_INSTALL_FLAGS }}
+          npm --workspace packages/cdk run cdk deploy -- CdkBackendStack --require-approval never
+      ##
+      # Web Frontend Deployment
+      ##
+      - name: Configuration and Setup Frontend Build
+        run: |
+          VITE_PROJECT_API_HOST=$(aws cloudformation describe-stacks --stack-name $CDK_ENV_STACK_NAME-backend --query "Stacks[0].Outputs[?OutputKey=='ApiDomainName'].OutputValue" --output text)
+          VITE_BASE_URL=$(aws cloudformation describe-stacks --stack-name $CDK_ENV_STACK_NAME-infrastructure --query "Stacks[0].Outputs[?OutputKey=='AppStaticUrl'].OutputValue" --output text)
+          echo "VITE_API_SERVER_URL=https://$VITE_PROJECT_API_HOST" >> $GITHUB_ENV
+          echo "VITE_BASE_URL=$VITE_BASE_URL" >> $GITHUB_ENV
+          echo "VITE_PROJECT_API_HOST=$VITE_PROJECT_API_HOST" >> $GITHUB_ENV
+          echo "VITE_PROJECT_ENV=${{env.PROJECT_ENV}}" >> $GITHUB_ENV
+          echo "VITE_PROJECT_SERVICE=${{env.PROJECT_SERVICE}}" >> $GITHUB_ENV
+          echo "VITE_PROJECT_VERSION=$(node -p "require('./package.json').version")" >> $GITHUB_ENV
+      - name: Generate Nuxt Deployment
+        env:
+          NUXT_PUBLIC_API_BASE: ${{ env.VITE_API_SERVER_URL }}
+          NUXT_PUBLIC_SITE_URL: ${{ env.VITE_BASE_URL }}
+          NUXT_UI_PRO_LICENSE: ${{ secrets.NUXT_UI_PRO_LICENSE }}
+        run: npm --workspace packages/nuxt run generate
+      - name: Fetch Deploy Role ARN
+        id: fetch-role-arn
+        run: |
+          BUCKET_DEPLOY_ROLE_ARN=$(aws cloudformation describe-stacks --stack-name $CDK_ENV_STACK_NAME-infrastructure --query "Stacks[0].Outputs[?OutputKey=='DestinationBucketDeployRoleArn'].OutputValue" --output text)
+          echo "BUCKET_DEPLOY_ROLE_ARN=$BUCKET_DEPLOY_ROLE_ARN" >> $GITHUB_ENV
+          BUCKET_NAME=$(aws cloudformation describe-stacks --stack-name $CDK_ENV_STACK_NAME-infrastructure --query "Stacks[0].Outputs[?OutputKey=='DestinationBucketName'].OutputValue" --output text)
+          echo "BUCKET_NAME=$BUCKET_NAME" >> $GITHUB_ENV
+      - name: Assume New AWS Role
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.BUCKET_DEPLOY_ROLE_ARN }}
+          role-session-name: BucketDeployGitHubSession
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Site Deploy (sync to S3 bucket)
+        # * Frontend build path must match output directory
+        run: aws s3 sync --delete ./packages/nuxt/.output/public s3://$BUCKET_NAME
+      ##
+      # Datadog Service Catalog Metadata Provider
+      ##
+      - uses: arcxp/datadog-service-catalog-metadata-provider@v2
+        env:
+          DATADOG_CICD_API_KEY: ${{ secrets.DATADOG_CICD_API_KEY }}
+          DATADOG_CICD_APP_KEY: ${{ secrets.DATADOG_CICD_APP_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        if:
+          env.DATADOG_CICD_API_KEY != '' && env.DATADOG_CICD_APP_KEY != ''
+        with:
+          datadog-app-key: ${{ secrets.DATADOG_CICD_APP_KEY }}
+          datadog-hostname: app.datadoghq.com
+          datadog-key: ${{ secrets.DATADOG_CICD_API_KEY }}
+          email: ${{ env.SERVICE_EMAIL }}
+          # github-token: GITHUB_TOKEN
+          # org-rules-file: .github/service-catalog-rules.yml
+          schema-version: v2.2
+          service-name: ${{ env.PROJECT_SERVICE }}
+          team: ${{ env.SERVICE_TEAM }}
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          cache: npm
+          node-version: 20
+      - run: |
+          if [[ -n "${{ secrets.NPM_TOKEN }}" ]]; then
+            echo "Configure secrets.NPM_TOKEN"
+            npm config set //registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}
+          fi
+      - run: npm install ${{ env.NPM_INSTALL_FLAGS }}
+      - run: npm run build
+        env:
+          NUXT_UI_PRO_LICENSE: ${{ secrets.NUXT_UI_PRO_LICENSE }}
+      - run: lerna run lint
+  test:
+    name: Unit Test (in parallel)
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [20.x, 22.x]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          cache: npm
+          node-version: ${{ matrix.node-version }}
+      - name: Configuration and Setup
+        run: |
+          if [[ -n "${{ secrets.NPM_TOKEN }}" ]]; then
+            echo "Configure secrets.NPM_TOKEN"
+            npm config set //registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}
+          fi
+      - run: npm ci ${{ env.NPM_INSTALL_FLAGS }}
+      - name: Run Tests
+        run: |
+          if [[ -n "${{ secrets.DATADOG_CICD_API_KEY }}" ]]; then
+            echo "Run tests with Datadog tracing"
+            npm install dd-trace --save-dev ${{ env.NPM_INSTALL_FLAGS }}
+            export DD_CIVISIBILITY_AGENTLESS_ENABLED=true
+            export DD_API_KEY=${{ secrets.DATADOG_CICD_API_KEY }}
+            export DD_SITE=datadoghq.com
+            NODE_OPTIONS="-r dd-trace/ci/init" DD_ENV=${{ env.PROJECT_ENV }} DD_SERVICE=${{ env.PROJECT_SERVICE }} npm test
+          else
+            npm test
+          fi
+  test-api:
+    name: Test Postman (after deploy)
+    runs-on: ubuntu-latest
+    needs: deploy
+    steps:
+      - uses: actions/checkout@v4
+        if: env.POSTMAN_COLLECTION_UUID != '' && env.POSTMAN_ENVIRONMENT_UUID != ''
+      - uses: actions/setup-node@v4
+        if: env.POSTMAN_COLLECTION_UUID != '' && env.POSTMAN_ENVIRONMENT_UUID != ''
+        with:
+          cache: npm
+          node-version: 20
+      - run: curl -o- "https://dl-cli.pstmn.io/install/linux64.sh" | sh
+        if: env.POSTMAN_COLLECTION_UUID != '' && env.POSTMAN_ENVIRONMENT_UUID != ''
+      - run: postman login --with-api-key ${{ secrets.POSTMAN_API_KEY }}
+        if: env.POSTMAN_COLLECTION_UUID != '' && env.POSTMAN_ENVIRONMENT_UUID != ''
+      - run: postman collection run "${{ env.POSTMAN_COLLECTION_UUID }}" -e "${{ env.POSTMAN_ENVIRONMENT_UUID }}"
+        if: env.POSTMAN_COLLECTION_UUID != '' && env.POSTMAN_ENVIRONMENT_UUID != ''

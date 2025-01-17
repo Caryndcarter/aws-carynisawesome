@@ -1,0 +1,17 @@
+{
+  "name": "initzero-project-nuxt",
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "build": "nuxt build",
+    "clean": "nuxt cleanup",
+    "dev": "nuxt dev",
+    "format": "eslint --fix .",
+    "generate": "nuxt generate",
+    "lint": "eslint .",
+    "nuxt:prepare": "nuxt prepare",
+    "preview": "nuxt preview",
+    "reset": "nuxt cleanup && nuxt prepare",
+    "typecheck": "nuxt typecheck"
+  }
+}

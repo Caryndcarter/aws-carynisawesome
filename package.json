@@ -1,0 +1,35 @@
+{
+  "name": "initzero-project",
+  "version": "0.0.1",
+  "private": true,
+  "license": "UNLICENSED",
+  "author": "Finlayson Studio",
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "lerna run build",
+    "cdk": "npm --workspace packages/cdk run cdk --",
+    "cdk:synth": "npm --workspace packages/cdk run cdk synth --",
+    "dev": "npm --workspace packages/nuxt run dev",
+    "format": "npm run format:main && npm run format:nuxt",
+    "format:main": "eslint --fix .",
+    "format:nuxt": "npm --workspace packages/nuxt run format",
+    "format:package": "sort-package-json ./package.json ./packages/*/package.json",
+    "generate": "lerna run generate",
+    "init": "npm i -D enquirer && node bin/init.js",
+    "lint": "npm run lint:main && npm run lint:nuxt",
+    "lint:main": "eslint .",
+    "lint:nuxt": "npm --workspace packages/nuxt run lint",
+    "nuxt:prepare": "npm --workspace packages/nuxt run nuxt:prepare",
+    "nuxt:reset": "npm --workspace packages/nuxt run reset",
+    "start": "npm --workspace packages/nuxt run dev",
+    "test": "vitest run .",
+    "test:watch": "vitest watch ."
+  },
+  "volta": {
+    "node": "20.18.1",
+    "npm": "10.9.1"
+  }
+}

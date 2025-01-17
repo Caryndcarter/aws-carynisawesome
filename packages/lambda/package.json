@@ -1,0 +1,12 @@
+{
+  "name": "initzero-project-lambda",
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "format": "eslint --fix .",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest watch"
+  },
+  "dependencies": {}
+}

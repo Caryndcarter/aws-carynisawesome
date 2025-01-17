@@ -12,13 +12,13 @@ concurrency:
 # * Do not use ${{ secrets }} in the `env` section
 env:
   AWS_REGION: us-east-1
-  AWS_ROLE_ARN: ${{ vars.ACCOUNT_PRODUCTION_AWS_ROLE_ARN }}
+  AWS_ROLE_ARN: ${{ vars.ACCOUNT_AWS_ROLE_ARN }}
   BUCKET_DEPLOY_ROLE_ARN: "" # Quiet lint, populates on build
-  CDK_ENV_API_HOSTED_ZONE: initzero.xyz
-  CDK_ENV_API_SUBDOMAIN: api.unknown # TODO: set CDK_ENV_API_SUBDOMAIN (e.g., campaign-api)
+  CDK_ENV_API_HOSTED_ZONE: caryn.isawesome.xyz
+  CDK_ENV_API_SUBDOMAIN: api
   CDK_ENV_REPO: ${{ github.repository }}
-  CDK_ENV_WEB_HOSTED_ZONE: initzero.xyz
-  CDK_ENV_WEB_SUBDOMAIN: unknown # TODO: set CDK_ENV_WEB_SUBDOMAIN (e.g., campaign)
+  CDK_ENV_WEB_HOSTED_ZONE: caryn.isawesome.xyz
+  CDK_ENV_WEB_SUBDOMAIN: "@"
   LOG_LEVEL: trace
   MODULE_LOG_LEVEL: warn
   NPM_INSTALL_FLAGS: ""
@@ -26,11 +26,11 @@ env:
   POSTMAN_ENVIRONMENT_UUID: "" # TODO: also needs POSTMAN_API_KEY secret
   PROJECT_COMMIT: ${{ github.sha }}
   PROJECT_ENV: production
-  PROJECT_KEY: unknown # TODO: set PROJECT_KEY (e.g., campaign)
-  PROJECT_NONCE: 844b1759 # TODO: randomize
-  PROJECT_SERVICE: none # e.g., operations; to tie multiple projects # TODO: set PROJECT_SERVICE if applicable
-  PROJECT_SPONSOR: unknown # TODO: set PROJECT_SPONSOR (e.g., company)
-  SERVICE_EMAIL: dev@initzero.xyz # TODO: change SERVICE_EMAIL and SERVICE_TEAM, if applicable
+  PROJECT_KEY: aws-carynisawesome
+  PROJECT_NONCE: ena1uf0l
+  PROJECT_SERVICE: none
+  PROJECT_SPONSOR: none
+  SERVICE_EMAIL: none
   SERVICE_TEAM: development
   VITE_PROJECT_BUILD_NUMBER: ${{ github.run_number }}
   VITE_API_SERVER_URL: "" # Quiet lint, populates on build

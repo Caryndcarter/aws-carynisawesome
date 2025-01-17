@@ -1,5 +1,5 @@
 {
-  "name": "initzero-project-lambda",
+  "name": "aws-carynisawesome-lambda",
   "version": "0.0.1",
   "type": "module",
   "scripts": {
@@ -8,5 +8,7 @@
     "test": "vitest run",
     "test:watch": "vitest watch"
   },
-  "dependencies": {}
+  "dependencies": {
+    "jaypie": "^1.1.17"
+  }
 }

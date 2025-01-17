@@ -1,5 +1,5 @@
 {
-  "name": "initzero-project-express",
+  "name": "aws-carynisawesome-express",
   "version": "0.0.1",
   "type": "module",
   "scripts": {
@@ -8,5 +8,11 @@
     "test": "vitest run",
     "test:watch": "vitest watch"
   },
-  "dependencies": {}
+  "dependencies": {
+    "@knowtrace/express": "^0.4.11",
+    "body-parser": "^1.20.3",
+    "express": "^4.21.2",
+    "jaypie": "^1.1.17",
+    "source-map-support": "^0.5.21"
+  }
 }

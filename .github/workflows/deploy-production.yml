@@ -97,8 +97,8 @@ jobs:
       ##
       - name: CDK Backend Deployment
         run: |
-          npm --workspace packages/express install ${{ env.NPM_INSTALL_FLAGS }}
-          npm --workspace packages/lambda install ${{ env.NPM_INSTALL_FLAGS }}
+          npm --prefix packages/express install ${{ env.NPM_INSTALL_FLAGS }}
+          npm --prefix packages/lambda install ${{ env.NPM_INSTALL_FLAGS }}
           npm --workspace packages/cdk run cdk deploy -- CdkBackendStack --require-approval never
       ##
       # Web Frontend Deployment
